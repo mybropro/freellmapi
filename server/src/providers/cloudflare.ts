@@ -91,6 +91,7 @@ export class CloudflareProvider extends BaseProvider {
         parallel_tool_calls: options?.parallel_tool_calls,
         stream: true,
       }),
+      signal: options?.signal,
     });
 
     if (!res.ok) {

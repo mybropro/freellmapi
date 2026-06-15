@@ -15,6 +15,9 @@ export interface CompletionOptions {
   tools?: ChatToolDefinition[];
   tool_choice?: ChatToolChoice;
   parallel_tool_calls?: boolean;
+  /** Abort signal for streaming requests, owned by the route so it can tear
+   * down the upstream when the client disconnects or the stream goes idle. */
+  signal?: AbortSignal;
 }
 
 export abstract class BaseProvider {
@@ -42,6 +45,11 @@ export abstract class BaseProvider {
     init: RequestInit,
     timeoutMs = 15000,
   ): Promise<Response> {
+    // Streaming callers own the abort lifetime (it must outlive headers-received,
+    // which our timer can't), so forward their signal untouched.
+    if (init.signal) {
+      return await fetch(url, init);
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {

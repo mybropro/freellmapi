@@ -341,13 +341,35 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         // instead of a silently truncated stream.
         let totalOutputTokens = 0;
         let streamStarted = false;
+
+        // Abort the upstream when the client disconnects or the stream stalls.
+        // Otherwise an abandoned/idle stream holds both sockets open for the
+        // full generation; under concurrency those pile up against the
+        // front-end connection budget and new connections get refused.
+        const abort = new AbortController();
+        const IDLE_TIMEOUT_MS = 60_000; // no chunk for this long -> tear down
+        let idleTimer: ReturnType<typeof setTimeout> | null = null;
+        const armIdle = () => {
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => abort.abort(new Error('upstream stream idle timeout')), IDLE_TIMEOUT_MS);
+        };
+        const clearIdle = () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } };
+        // Client hung up before we finished — stop pulling from upstream.
+        let clientGone = false;
+        const onClientClose = () => {
+          if (!res.writableEnded) { clientGone = true; abort.abort(new Error('client disconnected')); }
+        };
+        res.on('close', onClientClose);
+
         try {
+          armIdle();
           const gen = route.provider.streamChatCompletion(
             route.apiKey, messages, route.modelId,
-            { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls },
+            { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, signal: abort.signal },
           );
 
           for await (const chunk of gen) {
+            armIdle();
             if (!streamStarted) {
               res.setHeader('Content-Type', 'text/event-stream');
               res.setHeader('Cache-Control', 'no-cache');
@@ -360,6 +382,8 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             totalOutputTokens += Math.ceil(text.length / 4);
             res.write(`data: ${JSON.stringify(chunk)}\n\n`);
           }
+          clearIdle();
+          res.off('close', onClientClose);
 
           if (!streamStarted) {
             // Upstream returned no chunks — emit minimal successful stream.
@@ -375,6 +399,15 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           logRequest(route.platform, route.modelId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null);
           return;
         } catch (streamErr: any) {
+          clearIdle();
+          res.off('close', onClientClose);
+
+          // Client disconnected: our abort is expected, the socket's gone — just
+          // stop, don't emit an error frame or fall through to retry/502.
+          if (clientGone) {
+            logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, 'client disconnected');
+            return;
+          }
           if (streamStarted) {
             // Mid-stream error — finish the SSE response cleanly instead of leaving
             // the client hanging or letting Express's default handler take over.
