@@ -176,6 +176,7 @@ export class OpenAICompatProvider extends BaseProvider {
         parallel_tool_calls: this.resolveParallelToolCalls(options),
         stream: true,
       }),
+      signal: options?.signal,
     }, this.timeoutMs);
 
     if (!res.ok) {

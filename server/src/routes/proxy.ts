@@ -812,10 +812,28 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         });
         const writeChunk = (c: unknown) => res.write(`data: ${JSON.stringify(c)}\n\n`);
 
+        // Client-disconnect propagation (scoped per attempt). If the client
+        // abandons the stream mid-flight, abort the upstream fetch so its
+        // socket is released immediately instead of running the orphaned
+        // generation to completion — un-aborted abandoned streams pile up under
+        // concurrency and new connections get refused. The controller/listener
+        // are per-attempt so a normal provider error still advances the
+        // fallback chain (the listener is removed on every exit path, and a
+        // genuine error never sets clientGone).
+        const controller = new AbortController();
+        let clientGone = false;
+        const onClientClose = () => {
+          if (!res.writableEnded) {
+            clientGone = true;
+            controller.abort();
+          }
+        };
+        res.on('close', onClientClose);
+
         try {
           const gen = route.provider.streamChatCompletion(
             route.apiKey, outboundMessages, route.modelId,
-            { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls },
+            { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, signal: controller.signal },
           );
 
           for await (const chunk of gen) {
@@ -833,6 +851,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
               writeChunk({ error: { message: `Provider error (${route.displayName}): ${sanitizeProviderErrorMessage(String(msg))}`, type: 'stream_error' } });
               try { res.write('data: [DONE]\n\n'); res.end(); } catch { /* socket gone */ }
               logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, `in-band error frame: ${sanitizeProviderErrorMessage(String(msg))}`, ttfbMs, pinnedModelId);
+              res.removeListener('close', onClientClose);
               return;
             }
 
@@ -962,8 +981,21 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           setStickyModel(messages, route.modelDbId, sessionIdHeader, strategyKey);
           if (handoffMode !== 'off' && sessionKey) recordSuccessfulModel({ sessionKey, modelKey });
           logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens + injectedHandoffTokens, totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId);
+          res.removeListener('close', onClientClose);
           return;
         } catch (streamErr: any) {
+          res.removeListener('close', onClientClose);
+
+          // Client disconnected mid-stream: we aborted the upstream fetch, and
+          // the resulting abort surfaces here as the stream error. The socket
+          // is already gone, so don't emit an SSE error frame and don't fall
+          // through to the retry/next-provider loop — just log and bail.
+          if (clientGone) {
+            console.log(`[Proxy] Client disconnected mid-stream from ${route.displayName}; aborted upstream fetch`);
+            logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, 'client disconnected mid-stream', ttfbMs, pinnedModelId);
+            return;
+          }
+
           if (headerSent) {
             // Mid-stream error after real payload reached the client — finish
             // the SSE response honestly instead of leaving the client hanging.

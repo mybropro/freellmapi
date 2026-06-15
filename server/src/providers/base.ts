@@ -50,6 +50,11 @@ export interface CompletionOptions {
    * stripped before the request body is built); used by the probe script so
    * NVIDIA's 15-60s serverless cold starts don't read as failures. */
   timeoutMs?: number;
+  /** Caller-owned abort signal for streaming. When the proxy detects the client
+   * has disconnected mid-stream, it aborts this so the upstream fetch tears down
+   * its socket immediately instead of running the abandoned generation to
+   * completion. */
+  signal?: AbortSignal;
 }
 
 export abstract class BaseProvider {
@@ -82,12 +87,24 @@ export abstract class BaseProvider {
     init: RequestInit,
     timeoutMs = 15000,
   ): Promise<Response> {
+    // Internal connect/headers-timeout controller. When the caller supplies its
+    // own signal (streaming client-disconnect abort), combine the two so EITHER
+    // the timeout OR the caller can tear down the upstream fetch — clobbering
+    // init.signal with the timeout controller's would silently swallow the
+    // caller's abort and leave an abandoned stream's socket open.
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const callerSignal = init.signal ?? undefined;
+    const onCallerAbort = () => controller.abort();
+    if (callerSignal) {
+      if (callerSignal.aborted) controller.abort();
+      else callerSignal.addEventListener('abort', onCallerAbort);
+    }
     try {
       return await proxyFetch(url, { ...init, signal: controller.signal }, this.platform);
     } finally {
       clearTimeout(timeout);
+      if (callerSignal) callerSignal.removeEventListener('abort', onCallerAbort);
     }
   }
 
