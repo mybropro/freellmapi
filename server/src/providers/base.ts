@@ -6,6 +6,7 @@ import type {
   ChatToolChoice,
   Platform,
 } from '@freellmapi/shared/types.js';
+import type { QuotaObservationContext } from '../services/provider-quota.js';
 import { proxyFetch } from '../lib/proxy.js';
 
 /** A provider HTTP error carrying the upstream status and, when the response
@@ -43,6 +44,7 @@ export interface CompletionOptions {
   temperature?: number;
   max_tokens?: number;
   top_p?: number;
+  stop?: string | string[];
   tools?: ChatToolDefinition[];
   tool_choice?: ChatToolChoice;
   parallel_tool_calls?: boolean;
@@ -71,6 +73,7 @@ export abstract class BaseProvider {
     messages: ChatMessage[],
     modelId: string,
     options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
   ): Promise<ChatCompletionResponse>;
 
   abstract streamChatCompletion(
@@ -78,9 +81,10 @@ export abstract class BaseProvider {
     messages: ChatMessage[],
     modelId: string,
     options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
   ): AsyncGenerator<ChatCompletionChunk>;
 
-  abstract validateKey(apiKey: string): Promise<boolean>;
+  abstract validateKey(apiKey: string, quotaContext?: QuotaObservationContext): Promise<boolean>;
 
   protected async fetchWithTimeout(
     url: string,
@@ -101,7 +105,9 @@ export abstract class BaseProvider {
       else callerSignal.addEventListener('abort', onCallerAbort);
     }
     try {
-      return await proxyFetch(url, { ...init, signal: controller.signal }, this.platform);
+      // requestType='chat' + timeoutMs makes the AbortError message read
+      // `<platform>, chat, 15s` for triage from the requests.error column.
+      return await proxyFetch(url, { ...init, signal: controller.signal }, this.platform, 'chat', timeoutMs);
     } finally {
       clearTimeout(timeout);
       if (callerSignal) callerSignal.removeEventListener('abort', onCallerAbort);

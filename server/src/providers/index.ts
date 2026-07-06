@@ -4,6 +4,7 @@ import { GoogleProvider } from './google.js';
 import { OpenAICompatProvider } from './openai-compat.js';
 import { CohereProvider } from './cohere.js';
 import { CloudflareProvider } from './cloudflare.js';
+import { AIHordeProvider } from './aihorde.js';
 
 const providers = new Map<Platform, BaseProvider>();
 
@@ -184,10 +185,98 @@ register(new OpenAICompatProvider({
   keyless: true,
 }));
 
+// Agnes AI (Sapiens AI) — OpenAI-compatible, backed by LiteLLM + vLLM. Its
+// proprietary Agnes models are currently served at $0/token: live-probed
+// 2026-06-15, the LiteLLM cost headers (x-litellm-response-cost-original) come
+// back 0.0 with no credit drain, so usage is genuinely free rather than a
+// one-time signup-credit grant. The $0 is promotional ("previously $X" /
+// "during this period"), and there is a paid Token/Unlimited subscription
+// underneath, so watch for reversion to paid. ~30 concurrent requests succeed
+// before 429s (no documented RPM/RPD). Free key from platform.agnes-ai.com,
+// no card. Catalog rows live in the catalog (premium → age into free); not
+// shipped as freeapi model migrations.
+register(new OpenAICompatProvider({
+  platform: 'agnes',
+  name: 'Agnes AI',
+  baseUrl: 'https://apihub.agnes-ai.com/v1',
+}));
+
 // Chutes was evaluated for V11 and dropped: probe with a free-tier key
 // returned 402 on every model — "Quota exceeded and account balance is
 // $0.0, please pay with fiat or send tao". The "free" tier requires a
 // non-zero balance, which conflicts with the project's no-card criterion.
+
+// Reka — OpenAI-compatible (api.reka.ai/v1). Live-probed 2026-06-17: free via a
+// recurring monthly credit grant (no card; key from platform.reka.ai), billed
+// calls succeed with no 402. The OpenAI-compatible /v1/models lists two models:
+// reka-flash-3 (text reasoning) and reka-edge-2603 (natively multimodal —
+// accepts image/video input). Balance is dashboard-only (no credits API).
+// Catalog rows live in the catalog (premium → age into free); they are NOT
+// shipped as freeapi model migrations.
+register(new OpenAICompatProvider({
+  platform: 'reka',
+  name: 'Reka',
+  baseUrl: 'https://api.reka.ai/v1',
+}));
+
+// SiliconFlow — OpenAI-compatible (api.siliconflow.com/v1). Registered mainly
+// for its FREE generative-media models (FLUX.1-schnell image, CosyVoice2 TTS),
+// which route via services/media.ts; OpenAI-compatible chat is supported too.
+// Key from siliconflow.com, no card; validateKey uses GET /v1/models (200 with
+// a valid key). Catalog rows live in the catalog (premium → age into free).
+register(new OpenAICompatProvider({
+  platform: 'siliconflow',
+  name: 'SiliconFlow',
+  baseUrl: 'https://api.siliconflow.com/v1',
+}));
+
+// Routeway — OpenAI-compatible aggregator (api.routeway.ai/v1). Free models
+// carry a ':free' suffix and cost $0; the free pool is rate-limited (docs say
+// 20 rpm / 200 rpd, but a live test on 2026-06-26 observed a stricter 5 rpm).
+// Cloudflare in front rejects non-browser User-Agents with error 1010, so a
+// browser-style UA is required. Free key from routeway.ai (no card). Catalog
+// rows live in the catalog (premium → age into free).
+register(new OpenAICompatProvider({
+  platform: 'routeway',
+  name: 'Routeway',
+  baseUrl: 'https://api.routeway.ai/v1',
+  extraHeaders: {
+    'User-Agent': 'Mozilla/5.0 FreeLLMAPI/1.0',
+  },
+}));
+
+// BazaarLink — OpenAI-compatible aggregator (bazaarlink.ai/api/v1). The
+// 'auto:free' route picks a currently-available zero-cost model (routed to
+// deepseek-v4-flash in a 2026-06-26 live test, usage.cost 0); direct model IDs
+// are paid, so only 'auto:free' is cataloged. Free key from bazaarlink.ai
+// (no card, supports agent self-registration). Reasoning models can consume a
+// tiny max_tokens internally, so default to a non-trivial output cap.
+register(new OpenAICompatProvider({
+  platform: 'bazaarlink',
+  name: 'BazaarLink',
+  baseUrl: 'https://bazaarlink.ai/api/v1',
+}));
+
+// AINative Studio — OpenAI-compatible aggregator (api.ainative.studio/api/v1).
+// Advertises a recurring ~10M tokens/month free allocation (no card), though
+// its own pages disagree on scale; treat the quota as unverified until a real
+// account confirms it. Bearer auth works (X-API-Key also accepted). Catalog
+// rows live in the catalog (premium → age into free).
+register(new OpenAICompatProvider({
+  platform: 'ainative',
+  name: 'AINative Studio',
+  baseUrl: 'https://api.ainative.studio/api/v1',
+}));
+
+// AI Horde — free, community-powered inference (volunteer workers) via an
+// OpenAI-compatible proxy. Dedicated AIHordeProvider (not OpenAICompatProvider)
+// because the proxy is queue-based and diverges from the OpenAI contract:
+// max_tokens must be >=16, stop must be an array, no tool calling, usage is
+// reported as kudos (synthesized into token counts), and calls can take tens of
+// seconds (120s timeout, no upstream streaming). Registered keyless so it
+// auto-configures and works anonymously (key 0000000000, lowest queue
+// priority); a registered aihorde.net key raises priority. See issue #345.
+register(new AIHordeProvider());
 
 // Placeholder so getProvider('custom')/hasProvider('custom')/getAllProviders()
 // behave — but the real instance is built per-key by resolveProvider(), since

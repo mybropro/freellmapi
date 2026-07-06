@@ -3,10 +3,10 @@
 // built in the main process; the popover is a file:// page), so they can't read
 // the dashboard's i18n. The active locale is mirrored from the dashboard via the
 // `freeapi:locale-changed` IPC (preload watches <html lang>) and persisted in
-// config, exactly like the theme. Keep these keys in sync with the five locales
+// config, exactly like the theme. Keep these keys in sync with the six locales
 // shipped by the client (client/src/i18n/locales).
 
-export const NATIVE_LOCALES = ['en', 'zh-CN', 'fr', 'es', 'pt-BR'] as const;
+export const NATIVE_LOCALES = ['en', 'zh-CN', 'fr', 'es', 'pt-BR', 'it'] as const;
 export type NativeLocale = (typeof NATIVE_LOCALES)[number];
 export const DEFAULT_NATIVE_LOCALE: NativeLocale = 'en';
 
@@ -17,6 +17,7 @@ export function normalizeLocale(raw: string | undefined | null): NativeLocale {
   if (l.startsWith('pt')) return 'pt-BR';
   if (l.startsWith('fr')) return 'fr';
   if (l.startsWith('es')) return 'es';
+  if (l.startsWith('it')) return 'it';
   return 'en';
 }
 
@@ -27,6 +28,7 @@ const STRINGS: Record<NativeLocale, Strings> = {
     tooltip: 'FreeLLMAPI — local LLM router',
     runningOn: 'Running on {addr}',
     openDashboard: 'Open Dashboard',
+    lanAccess: 'Allow LAN access (0.0.0.0)',
     quitApp: 'Quit FreeLLMAPI',
     running: 'running',
     requestsToday: 'Requests today',
@@ -46,6 +48,7 @@ const STRINGS: Record<NativeLocale, Strings> = {
     tooltip: 'FreeLLMAPI — 本地 LLM 路由器',
     runningOn: '运行于 {addr}',
     openDashboard: '打开仪表板',
+    lanAccess: '允许局域网访问 (0.0.0.0)',
     quitApp: '退出 FreeLLMAPI',
     running: '运行中',
     requestsToday: '今日请求',
@@ -65,6 +68,7 @@ const STRINGS: Record<NativeLocale, Strings> = {
     tooltip: 'FreeLLMAPI — routeur LLM local',
     runningOn: 'En cours sur {addr}',
     openDashboard: 'Ouvrir le tableau de bord',
+    lanAccess: 'Autoriser l\'accès LAN (0.0.0.0)',
     quitApp: 'Quitter FreeLLMAPI',
     running: 'en cours',
     requestsToday: "Requêtes aujourd'hui",
@@ -84,6 +88,7 @@ const STRINGS: Record<NativeLocale, Strings> = {
     tooltip: 'FreeLLMAPI — enrutador LLM local',
     runningOn: 'En ejecución en {addr}',
     openDashboard: 'Abrir el panel',
+    lanAccess: 'Permitir acceso LAN (0.0.0.0)',
     quitApp: 'Salir de FreeLLMAPI',
     running: 'en ejecución',
     requestsToday: 'Solicitudes hoy',
@@ -103,6 +108,7 @@ const STRINGS: Record<NativeLocale, Strings> = {
     tooltip: 'FreeLLMAPI — roteador LLM local',
     runningOn: 'Em execução em {addr}',
     openDashboard: 'Abrir o painel',
+    lanAccess: 'Permitir acesso LAN (0.0.0.0)',
     quitApp: 'Sair do FreeLLMAPI',
     running: 'em execução',
     requestsToday: 'Solicitações hoje',
@@ -117,6 +123,26 @@ const STRINGS: Record<NativeLocale, Strings> = {
     now: 'agora',
     peak: 'pico {n}/h',
     successSuffix: '{n}% de sucesso',
+  },
+  it: {
+    tooltip: 'FreeLLMAPI — router LLM locale',
+    runningOn: 'In esecuzione su {addr}',
+    openDashboard: 'Apri il pannello',
+    lanAccess: 'Consenti accesso LAN (0.0.0.0)',
+    quitApp: 'Esci da FreeLLMAPI',
+    running: 'in esecuzione',
+    requestsToday: 'Richieste oggi',
+    tokensToday: 'Token oggi',
+    lastModel: 'Ultimo modello',
+    copyUrl: 'Copia URL',
+    copyKey: 'Copia chiave',
+    copied: 'Copiato ✓',
+    startAtLogin: "Avvia all'accesso",
+    quit: 'Esci',
+    hoursAgo: '24 h fa',
+    now: 'ora',
+    peak: 'picco {n}/h',
+    successSuffix: '{n}% di successo',
   },
 };
 
